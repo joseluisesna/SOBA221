@@ -1,0 +1,185 @@
+---
+title: "Homework example"
+author: "SOBA221 - Social Network teaching team"
+date: "28/05/2020"
+output: html_document
+---
+
+## RESEARCH QUESTIONS
+
+#### *RQ1*: _Is there sport-based homophily? (Are sporty people more likely to be friends?)_ 
+
+#### *RQ2*: _Do discrepancies in reports of giving and getting study-related information reveal status inequality among students?_
+
+---
+
+```{r, eval=TRUE, message=FALSE}
+# Data loading
+load('ActorVariables.RData')
+load('NetworkVariables.RData')
+load('TwoModeVariables.RData')
+```
+
+```{r, eval=TRUE, message=FALSE}
+# Packages
+library(sna)
+library(igraph)
+library(ggplot2)
+```
+
+### Selection of the variables that I will be using
+```{r, eval=TRUE}
+# RQ1
+sport <- ActorVariables$sport_time # Sport time
+friend <- NetworkVariables$friends_out_net # Out-friendship network
+# Co-factors: gender
+gender <- ActorVariables$gender
+
+# RQ2
+studyin <- NetworkVariables$study_info_in_net # Study info in
+studyout <- NetworkVariables$study_info_out_net # Study info out
+pop <- NetworkVariables$popular_net # Popularity
+```
+
+## RQ 1
+
+### Descriptive statistics
+
+In this stage, check the codebook carefully!
+```{r, eval=TRUE}
+sport[sport == -1] <- NA # Prefer not answering (-1) to NA (missing)
+sum_sport <- c(mean(sport,na.rm=TRUE),
+               sd(sport,na.rm=TRUE),
+               range(sport,na.rm=TRUE),
+               sum(!is.na(sport)))
+names(sum_sport) <- c('mean','sd','min','max','n')
+sum_sport
+```
+
+```{r, eval=TRUE, fig.align='center', fig.width= 4.5, fig.height= 2.5}
+ggplot()+
+  geom_histogram(aes(x=sport),binwidth=1,color='black',fill='grey')
+```
+
+```{r, eval=TRUE}
+c(density=gden(friend)*100,
+  reciprocity=grecip(friend,measure='edgewise')*100,
+  transitivity=gtrans(friend)*100)
+```
+
+```{r, eval=TRUE, fig.align='center', fig.width= 7, fig.height= 7}
+diag(friend) <- NA # I removed the diagonal
+rownames(friend) <- 1:nrow(friend)
+colnames(friend) <- 1:ncol(friend)
+
+gradient <- colorRampPalette(c('red','yellow','green'))
+plot(graph_from_adjacency_matrix(friend,mode='directed'),
+     layout=layout_nicely,
+     vertex.size = 8.5,
+     vertex.color=ifelse(is.na(sport),'white',
+                         ifelse(sport %in% 1:2,gradient(4)[1],
+                                ifelse(sport %in% 3:4,gradient(4)[2],
+                                       ifelse(sport %in% 5:6,gradient(4)[3],
+                                              gradient(4)[4])))),
+     vertex.label.color='black',
+     main='Friendship network coloured by how sporty each student is')
+```
+
+```{r, eval=TRUE}
+# Gender
+gender <- ifelse(gender == 1,'male','female')
+gender <- as.factor(gender) # Defined as a factor
+summary(gender)
+```
+
+Remember that for QAP-family analyses, variables must be matrices (not vectors)
+
+```{r, eval=TRUE}
+# Sport and gender as matrix
+sport_diff <- abs(outer(sport,sport,'-')) # Absolute difference
+gender_same <- 1*outer(gender,gender,'==') # Same gender
+```
+
+### Analysis
+
+Is there an association between friendship and sportiness?
+```{r, eval=TRUE}
+# Matrix correlation
+gcor(friend,sport_diff)
+```
+
+Is it significant?
+
+```{r, eval=TRUE, fig.align='center', fig.width= 5, fig.height= 3}
+qap_corr <- qaptest(list(friend,sport_diff),
+                    gcor,g1=1,g2=2,reps=100)
+summary(qap_corr)
+plot(qap_corr)
+```
+
+What if we adjust for reciprocity and same gender?
+
+```{r, eval=TRUE, message=FALSE, warning=FALSE}
+# QAP regression (friend as a function of reciprocity, gender and sport homophily)
+qap_mr <- netlogit(y=friend,x=list(t(friend),gender_same,sport_diff),
+                   nullhyp='qap',reps=100)
+print(qap_mr)
+```
+
+
+## RQ 2
+
+Are there discrepancies in the first place? Check if "get" network is same as transpose of the "give" network:
+
+```{r, eval=TRUE}
+table(studyout,t(studyin))
+```
+
+Apparently 146 "get" nominations are not confirmed by the giver, while another 79 "give" nominations are not confirmed by the recipient.
+
+```{r, eval=TRUE}
+# Calculate difference matrix and take the absolute value:
+discrepancy <- abs(studyout - t(studyin))
+```
+
+The question was if this goes together with status differences. So calculate status as the indegree of each student in the popularity network.
+
+```{r, eval=TRUE}
+status <- sna::degree(pop,cmode="indegree")
+```
+
+```{r, eval=TRUE, fig.align='center', fig.width= 4.5, fig.height= 2.5}
+ggplot()+
+  geom_histogram(aes(x=status),binwidth=1,color='black',fill='grey')
+```
+
+```{r, eval=TRUE}
+# Because this variable in very right-skewed, I will take its square root
+status <- sqrt(status)
+```
+
+```{r, eval=TRUE, fig.align='center', fig.width= 4.5, fig.height= 2.5}
+ggplot()+
+  geom_histogram(aes(x=status),binwidth=1,color='black',fill='grey')
+```
+
+```{r, eval=TRUE}
+# And calculate status difference (sender minus receiver):
+status_diff <- abs(outer(status,status,"-"))
+```
+
+### Analysis
+
+Is there an association between discrepancy and status differences
+```{r, eval=TRUE}
+gcor(discrepancy,status_diff)
+```
+
+Is it significant?
+
+```{r, eval=TRUE, fig.align='center', fig.width= 5, fig.height= 3}
+qap_corr <- qaptest(list(discrepancy,status_diff),
+                    gcor,g1=1,g2=2,reps=100)
+summary(qap_corr)
+plot(qap_corr)
+```
